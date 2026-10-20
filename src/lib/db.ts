@@ -1,3 +1,4 @@
+import type { IngredientReview } from './shopping';
 import Dexie, { type EntityTable } from 'dexie';
 export type Meal = 'comida' | 'cena';
 export interface Ingredient { name: string; amount: number; unit: 'g' | 'ml' | 'ud' }
@@ -17,7 +18,7 @@ export function ratingSummary(ratings: RecipeRating[], recipeId: string) {
   return { count: votes.length, average: votes.length ? votes.reduce((sum,r)=>sum+r.score,0)/votes.length : null };
 }
 export type MealStatus = 'pendiente' | 'realizada' | 'no_realizada';
-export interface PlannedMeal { id: string; date: string; meal: Meal; recipeId: string; servings: number; status?: MealStatus }
+export interface PlannedMeal { id: string; date: string; meal: Meal; recipeId: string; servings: number; status?: MealStatus; locked?: boolean }
 export interface PantryPriority { id: string; name: string; amount?: number; unit?: 'g' | 'ml' | 'ud'; createdAt: string }
 export interface ShoppingCheck { id: string; checked: boolean }
 export interface Person { id: string; name: string }
@@ -28,6 +29,7 @@ class PlannerDatabase extends Dexie {
   checks!: EntityTable<ShoppingCheck, 'id'>;
   ratings!: EntityTable<RecipeRating, 'id'>;
   priorities!: EntityTable<PantryPriority, 'id'>;
+  ingredientReviews!: EntityTable<IngredientReview, 'id'>;
   constructor() {
     super('meal-planner-demo');
     this.version(1).stores({ recipes: 'id, name, cuisine', plans: 'id, date, meal', checks: 'id, checked', people: 'id', absences: 'id, personId, date' });
@@ -44,6 +46,7 @@ class PlannerDatabase extends Dexie {
     });
     this.version(4).stores({ recipes: 'id, name, cuisine, *seasons, *mealTypes, *tags', plans: 'id, date, meal, status', checks: 'id, checked', ratings: 'id, recipeId, personId, [recipeId+personId]' }).upgrade(async tx => { await tx.table('plans').toCollection().modify(plan => { if (!plan.status) plan.status = 'pendiente'; }); });
     this.version(5).stores({ recipes: 'id, name, cuisine, *seasons, *mealTypes, *tags', plans: 'id, date, meal, status', checks: 'id, checked', ratings: 'id, recipeId, personId, [recipeId+personId]', priorities: 'id, name' });
+    this.version(6).stores({ ingredientReviews: 'id, week, ingredientId' });
   }
 }
 export const db = new PlannerDatabase();
