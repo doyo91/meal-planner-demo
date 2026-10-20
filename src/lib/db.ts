@@ -16,7 +16,8 @@ export function ratingSummary(ratings: RecipeRating[], recipeId: string) {
   const votes = ratings.filter(r => r.recipeId === recipeId);
   return { count: votes.length, average: votes.length ? votes.reduce((sum,r)=>sum+r.score,0)/votes.length : null };
 }
-export interface PlannedMeal { id: string; date: string; meal: Meal; recipeId: string; servings: number }
+export type MealStatus = 'pendiente' | 'realizada' | 'no_realizada';
+export interface PlannedMeal { id: string; date: string; meal: Meal; recipeId: string; servings: number; status?: MealStatus }
 export interface ShoppingCheck { id: string; checked: boolean }
 export interface Person { id: string; name: string }
 export interface Absence { id: string; personId: string; date: string }
@@ -39,6 +40,7 @@ class PlannerDatabase extends Dexie {
       await tx.table('ratings').clear();
       await tx.table('ratings').bulkPut([...latest.values()].map(vote => ({ ...vote, id: `${vote.recipeId}:single`, personId: 'single' })));
     });
+    this.version(4).stores({ recipes: 'id, name, cuisine, *seasons, *mealTypes, *tags', plans: 'id, date, meal, status', checks: 'id, checked', ratings: 'id, recipeId, personId, [recipeId+personId]' }).upgrade(async tx => { await tx.table('plans').toCollection().modify(plan => { if (!plan.status) plan.status = 'pendiente'; }); });
   }
 }
 export const db = new PlannerDatabase();
