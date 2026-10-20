@@ -24,13 +24,21 @@ class PlannerDatabase extends Dexie {
   recipes!: EntityTable<Recipe, 'id'>;
   plans!: EntityTable<PlannedMeal, 'id'>;
   checks!: EntityTable<ShoppingCheck, 'id'>;
-  people!: EntityTable<Person, 'id'>;
-  absences!: EntityTable<Absence, 'id'>;
   ratings!: EntityTable<RecipeRating, 'id'>;
   constructor() {
     super('meal-planner-demo');
     this.version(1).stores({ recipes: 'id, name, cuisine', plans: 'id, date, meal', checks: 'id, checked', people: 'id', absences: 'id, personId, date' });
     this.version(2).stores({ recipes: 'id, name, cuisine, *seasons, *mealTypes, *tags', plans: 'id, date, meal', checks: 'id, checked', people: 'id', absences: 'id, personId, date', ratings: 'id, recipeId, personId, [recipeId+personId]' }).upgrade(async tx => { await tx.table('recipes').toCollection().modify(recipe => Object.assign(recipe, enrichRecipe(recipe))); });
+    this.version(3).stores({ recipes: 'id, name, cuisine, *seasons, *mealTypes, *tags', plans: 'id, date, meal', checks: 'id, checked', people: null, absences: null, ratings: 'id, recipeId, personId, [recipeId+personId]' }).upgrade(async tx => {
+      const existing = await tx.table('ratings').toArray() as RecipeRating[];
+      const latest = new Map<string, RecipeRating>();
+      for (const vote of existing) {
+        const prev = latest.get(vote.recipeId);
+        if (!prev || vote.updatedAt > prev.updatedAt) latest.set(vote.recipeId, vote);
+      }
+      await tx.table('ratings').clear();
+      await tx.table('ratings').bulkPut([...latest.values()].map(vote => ({ ...vote, id: `${vote.recipeId}:single`, personId: 'single' })));
+    });
   }
 }
 export const db = new PlannerDatabase();
@@ -75,10 +83,7 @@ export function enrichRecipe(recipe: Recipe): Recipe {
 
 export async function seed() {
   if (await db.recipes.count()) return;
-  await db.transaction('rw', db.recipes, db.people, async () => {
-    await db.recipes.bulkAdd(samples.map(enrichRecipe));
-    if (!(await db.people.count())) await db.people.bulkAdd([{id:'p1',name:'Alex'},{id:'p2',name:'Sam'}]);
-  });
+  await db.recipes.bulkAdd(samples.map(enrichRecipe));
 }
 export function weekDates(reference = new Date()): string[] {
   const d = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
