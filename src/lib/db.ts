@@ -18,6 +18,7 @@ export function ratingSummary(ratings: RecipeRating[], recipeId: string) {
 }
 export type MealStatus = 'pendiente' | 'realizada' | 'no_realizada';
 export interface PlannedMeal { id: string; date: string; meal: Meal; recipeId: string; servings: number; status?: MealStatus }
+export interface PantryPriority { id: string; name: string; amount?: number; unit?: 'g' | 'ml' | 'ud'; createdAt: string }
 export interface ShoppingCheck { id: string; checked: boolean }
 export interface Person { id: string; name: string }
 export interface Absence { id: string; personId: string; date: string }
@@ -26,6 +27,7 @@ class PlannerDatabase extends Dexie {
   plans!: EntityTable<PlannedMeal, 'id'>;
   checks!: EntityTable<ShoppingCheck, 'id'>;
   ratings!: EntityTable<RecipeRating, 'id'>;
+  priorities!: EntityTable<PantryPriority, 'id'>;
   constructor() {
     super('meal-planner-demo');
     this.version(1).stores({ recipes: 'id, name, cuisine', plans: 'id, date, meal', checks: 'id, checked', people: 'id', absences: 'id, personId, date' });
@@ -41,6 +43,7 @@ class PlannerDatabase extends Dexie {
       await tx.table('ratings').bulkPut([...latest.values()].map(vote => ({ ...vote, id: `${vote.recipeId}:single`, personId: 'single' })));
     });
     this.version(4).stores({ recipes: 'id, name, cuisine, *seasons, *mealTypes, *tags', plans: 'id, date, meal, status', checks: 'id, checked', ratings: 'id, recipeId, personId, [recipeId+personId]' }).upgrade(async tx => { await tx.table('plans').toCollection().modify(plan => { if (!plan.status) plan.status = 'pendiente'; }); });
+    this.version(5).stores({ recipes: 'id, name, cuisine, *seasons, *mealTypes, *tags', plans: 'id, date, meal, status', checks: 'id, checked', ratings: 'id, recipeId, personId, [recipeId+personId]', priorities: 'id, name' });
   }
 }
 export const db = new PlannerDatabase();
