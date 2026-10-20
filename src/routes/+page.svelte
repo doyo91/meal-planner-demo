@@ -1,20 +1,16 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { db, seed, weekDates, shoppingFor, type Recipe, type PlannedMeal, type Person, type Absence, type Meal, type RecipeRating, ratingSummary } from '$lib/db';
+import { db, seed, weekDates, shoppingFor, type Recipe, type PlannedMeal, type Meal, type RecipeRating } from '$lib/db';
 type Tab = 'plan'|'recipes'|'shopping'|'settings';
 let tab = $state<Tab>('plan');
 let recipes = $state<Recipe[]>([]);
 let plans = $state<PlannedMeal[]>([]);
-let people = $state<Person[]>([]);
-let absences = $state<Absence[]>([]);
 let checked = $state<string[]>([]);
 let ready = $state(false);
 let search = $state('');
 let week = $state(weekDates());
-let newPerson = $state('');
 let ratings = $state<RecipeRating[]>([]);
 let selectedRecipe = $state<string | null>(null);
-let ratingPerson = $state('p1');
 let cuisineFilter = $state('');
 let mealFilter = $state('');
 let seasonFilter = $state('');
@@ -27,9 +23,9 @@ let tags = $derived([...new Set(recipes.flatMap(r=>r.tags??[]))].sort());
 let shopping = $derived(shoppingFor(plans.filter(p=>week.includes(p.date)),recipes));
 const label = (date:string) => new Date(`${date}T12:00:00`).toLocaleDateString('es-ES',{day:'numeric',month:'short'});
 const mealFor = (date:string,meal:Meal) => plans.find(p=>p.date===date&&p.meal===meal);
-const present = (date:string) => people.filter(p=>!absences.some(a=>a.personId===p.id&&a.date===date)).length;
+
 async function refresh() {
- [recipes,plans,people,absences] = await Promise.all([db.recipes.toArray(),db.plans.toArray(),db.people.toArray(),db.absences.toArray()]);
+ [recipes,plans] = await Promise.all([db.recipes.toArray(),db.plans.toArray()]);
  checked=(await db.checks.filter(c=>c.checked).toArray()).map(c=>c.id);
  ratings=await db.ratings.toArray();
 }
@@ -37,7 +33,7 @@ onMount(()=>{void (async()=>{await seed();await refresh();ready=true;})()});
 async function choose(date:string,meal:Meal,recipeId:string) {
  const existing=mealFor(date,meal);
  if (!recipeId) { if(existing) await db.plans.delete(existing.id); }
- else await db.plans.put({id:existing?.id??crypto.randomUUID(),date,meal,recipeId,servings:existing?.servings??Math.max(1,present(date))});
+ else await db.plans.put({id:existing?.id??crypto.randomUUID(),date,meal,recipeId,servings:existing?.servings??2});
  await refresh();
 }
 async function changeServings(date:string,meal:Meal,value:number) {
@@ -46,23 +42,17 @@ async function changeServings(date:string,meal:Meal,value:number) {
 async function generate() {
  const used=new Set(plans.filter(p=>week.includes(p.date)).map(p=>p.recipeId));
  for(const date of week) for(const meal of ['comida','cena'] as Meal[]) {
-  if(mealFor(date,meal)||!present(date))continue;
+  if(mealFor(date,meal))continue;
   const pool=recipes.filter(r=>!used.has(r.id));
   const options=pool.length?pool:recipes;
   const selected=options[Math.floor(Math.random()*options.length)];
-  if(selected){await db.plans.put({id:crypto.randomUUID(),date,meal,recipeId:selected.id,servings:present(date)});used.add(selected.id);}
+  if(selected){await db.plans.put({id:crypto.randomUUID(),date,meal,recipeId:selected.id,servings:2});used.add(selected.id);}
  }
  await refresh();
 }
-async function rate(recipeId:string,personId:string,score:number){await db.ratings.put({id:`${recipeId}:${personId}`,recipeId,personId,score,updatedAt:new Date().toISOString()});await refresh();}
+async function rate(recipeId:string,score:number){await db.ratings.put({id:`${recipeId}:single`,recipeId,personId:'single',score,updatedAt:new Date().toISOString()});await refresh();}
 async function reset() {if(!confirm('¿Restaurar los datos de prueba?'))return;await db.delete();await db.open();await seed();await refresh();}
 async function toggleCheck(id:string) {await db.checks.put({id,checked:!checked.includes(id)});await refresh();}
-async function addPerson() {const name=newPerson.trim();if(!name)return;await db.people.add({id:crypto.randomUUID(),name});newPerson='';await refresh();}
-async function toggleAbsence(personId:string,date:string) {
- const current=absences.find(a=>a.personId===personId&&a.date===date);
- if(current)await db.absences.delete(current.id);else await db.absences.add({id:crypto.randomUUID(),personId,date});
- await refresh();
-}
 function moveWeek(direction:number){const d=new Date(`${week[0]}T12:00:00`);d.setDate(d.getDate()+7*direction);week=weekDates(d);}
 </script>
 <svelte:head><title>Menú de casa · Demo</title><meta name="description" content="Planificador semanal local de comidas"/></svelte:head>
@@ -73,7 +63,7 @@ function moveWeek(direction:number){const d=new Date(`${week[0]}T12:00:00`);d.se
 {:else if tab==='plan'}
 <section class="topline"><div><h2>Tu semana</h2><p>Comidas y cenas para tu hogar</p></div><button class="primary" onclick={generate}>Completar menú</button></section>
 <div class="weeknav"><button onclick={()=>moveWeek(-1)} aria-label="Semana anterior">‹</button><strong>{label(week[0])} — {label(week[6])}</strong><button onclick={()=>moveWeek(1)} aria-label="Semana siguiente">›</button></div>
-<div class="days">{#each week as date,i}<article class="day"><div class="dayhead"><strong>{days[i]} <span>{label(date)}</span></strong><small>{present(date)} en casa</small></div><div class="meals">{#each ['comida','cena'] as meal}<div class="meal"><label for={`${date}-${meal}`}>{meal==='comida'?'Comida':'Cena'}</label><select id={`${date}-${meal}`} value={mealFor(date,meal as Meal)?.recipeId??''} onchange={e=>choose(date,meal as Meal,e.currentTarget.value)}><option value="">Sin planificar</option>{#each recipes as recipe}<option value={recipe.id}>{recipe.name}</option>{/each}</select>{#if mealFor(date,meal as Meal)}<div class="servings"><span>Raciones</span><button onclick={()=>changeServings(date,meal as Meal,(mealFor(date,meal as Meal)?.servings??1)-1)}>−</button><b>{mealFor(date,meal as Meal)?.servings}</b><button onclick={()=>changeServings(date,meal as Meal,(mealFor(date,meal as Meal)?.servings??1)+1)}>+</button></div>{/if}</div>{/each}</div></article>{/each}</div>
+<div class="days">{#each week as date,i}<article class="day"><div class="dayhead"><strong>{days[i]} <span>{label(date)}</span></strong><small>Menú compartido</small></div><div class="meals">{#each ['comida','cena'] as meal}<div class="meal"><label for={`${date}-${meal}`}>{meal==='comida'?'Comida':'Cena'}</label><select id={`${date}-${meal}`} value={mealFor(date,meal as Meal)?.recipeId??''} onchange={e=>choose(date,meal as Meal,e.currentTarget.value)}><option value="">Sin planificar</option>{#each recipes as recipe}<option value={recipe.id}>{recipe.name}</option>{/each}</select>{#if mealFor(date,meal as Meal)}<div class="servings"><span>Raciones</span><button onclick={()=>changeServings(date,meal as Meal,(mealFor(date,meal as Meal)?.servings??1)-1)}>−</button><b>{mealFor(date,meal as Meal)?.servings}</b><button onclick={()=>changeServings(date,meal as Meal,(mealFor(date,meal as Meal)?.servings??1)+1)}>+</button></div>{/if}</div>{/each}</div></article>{/each}</div>
 {:else if tab==='recipes'}
 <section class="topline"><div><h2>Recetario</h2><p>{filteredRecipes.length} de {recipes.length} recetas</p></div></section>
 <input class="search" placeholder="Buscar receta, cocina o etiqueta…" bind:value={search}/>
@@ -91,18 +81,17 @@ function moveWeek(direction:number){const d=new Date(`${week[0]}T12:00:00`);d.se
 <h3>Preparación</h3><ol class="steps">{#each detail.steps??[] as step}<li>{step.instruction}</li>{/each}</ol>
 <h3>Utensilios</h3><div class="chiprow">{#each detail.equipment??[] as tool}<span class="chip">{tool}</span>{/each}</div>
 <h3>Ingredientes de temporada</h3><p>{detail.seasonalIngredients?.length?detail.seasonalIngredients.join(', '):'No se han identificado ingredientes estacionales relevantes.'}</p>
-<h3>Valoración del hogar</h3><p>{ratingSummary(ratings,detail.id).average?.toFixed(1)??'Sin valorar'} / 5 · {ratingSummary(ratings,detail.id).count} votos</p>
-<div class="rate"><select aria-label="Persona que valora" bind:value={ratingPerson}>{#each people as person}<option value={person.id}>{person.name}</option>{/each}</select>{#each [1,2,3,4,5] as star}<button aria-label={`Valorar ${star} estrellas`} onclick={()=>rate(detail.id,ratingPerson,star)}>★ {star}</button>{/each}</div>
+<h3>Mi valoración</h3><p>{ratings.find(r=>r.recipeId===detail.id&&r.personId==='single')?.score??'Sin valorar'} / 5</p>
+<div class="rate">{#each [1,2,3,4,5] as star}<button aria-label={`Valorar ${star} estrellas`} onclick={()=>rate(detail.id,star)}>★ {star}</button>{/each}</div>
 </article>
 {:else}
-<div class="recipegrid">{#each filteredRecipes as r}<button class="recipecard recipe-button" onclick={()=>selectedRecipe=r.id}><div class="recipeicon">◈</div><div><small>{r.cuisine} · {r.minutes} min</small><h3>{r.name}</h3><p>{r.description}</p><div class="chiprow">{#each (r.tags??[]).slice(0,3) as tag}<span class="chip">{tag}</span>{/each}</div><small>★ {ratingSummary(ratings,r.id).average?.toFixed(1)??'—'} ({ratingSummary(ratings,r.id).count})</small></div></button>{/each}</div>
+<div class="recipegrid">{#each filteredRecipes as r}<button class="recipecard recipe-button" onclick={()=>selectedRecipe=r.id}><div class="recipeicon">◈</div><div><small>{r.cuisine} · {r.minutes} min</small><h3>{r.name}</h3><p>{r.description}</p><div class="chiprow">{#each (r.tags??[]).slice(0,3) as tag}<span class="chip">{tag}</span>{/each}</div><small>★ {ratings.find(v=>v.recipeId===r.id&&v.personId==='single')?.score??'—'}</small></div></button>{/each}</div>
 {/if}
 {:else if tab==='shopping'}
 <section class="topline"><div><h2>Lista de compra</h2><p>Calculada desde el menú de esta semana</p></div></section><div class="summary"><strong>{shopping.length} ingredientes</strong><span>{shopping.filter(i=>checked.includes(i.id)).length} completados</span></div>{#if !shopping.length}<div class="empty">Planifica alguna comida para generar la lista.</div>{:else}<div class="shoppinglist">{#each shopping as item}<label class:done={checked.includes(item.id)} class="shoppingitem"><input type="checkbox" checked={checked.includes(item.id)} onchange={()=>toggleCheck(item.id)}/><span>{item.name}</span><strong>{Number(item.amount.toFixed(1))} {item.unit}</strong></label>{/each}</div>{/if}<p class="hint">Las cantidades se agrupan por ingrediente y unidad. La lista queda guardada en este dispositivo.</p>
 {:else}
-<section class="topline"><div><h2>Hogar y preferencias</h2><p>Personas y ausencias puntuales</p></div></section>
-<div class="panel"><h3>Personas del hogar</h3>{#each people as p}<div class="person"><span>{p.name}</span><button class="muted" onclick={async()=>{await db.people.delete(p.id);await refresh();}}>Eliminar</button></div>{/each}<div class="addrow"><input placeholder="Nombre" bind:value={newPerson}/><button class="primary" onclick={addPerson}>Añadir</button></div></div>
-<div class="panel"><h3>¿Quién come en casa esta semana?</h3><p class="hint">Pulsa un día para marcar una ausencia. Las raciones planificadas se ajustan desde el menú.</p><div class="absence"><div></div>{#each week as date,i}<strong>{days[i]}</strong>{/each}{#each people as p}<span>{p.name}</span>{#each week as date}<button class:away={absences.some(a=>a.personId===p.id&&a.date===date)} aria-label={`${p.name} ${date}`} onclick={()=>toggleAbsence(p.id,date)}>{absences.some(a=>a.personId===p.id&&a.date===date)?'–':'✓'}</button>{/each}{/each}</div></div>
+<section class="topline"><div><h2>Ajustes</h2><p>Un menú compartido, sin perfiles</p></div></section>
+<div class="panel"><h3>Cómo funcionan las raciones</h3><p class="hint">Cada comida se planifica por defecto para 2 raciones. Puedes subir o bajar las raciones de cualquier plato desde el menú; la lista de compra se recalcula automáticamente. Las valoraciones son personales y únicas por receta.</p></div>
 <div class="panel"><h3>Datos de la demo</h3><p class="hint">Todo se guarda en IndexedDB. No se envía información a un servidor.</p><button class="danger" onclick={reset}>Restaurar datos de prueba</button></div>
 {/if}
 </main><nav aria-label="Navegación principal"><button class:active={tab==='plan'} onclick={()=>tab='plan'}><span>▦</span>Menú</button><button class:active={tab==='recipes'} onclick={()=>tab='recipes'}><span>▤</span>Recetas</button><button class:active={tab==='shopping'} onclick={()=>tab='shopping'}><span>☑</span>Compra</button><button class:active={tab==='settings'} onclick={()=>tab='settings'}><span>⚙</span>Ajustes</button></nav></div>
