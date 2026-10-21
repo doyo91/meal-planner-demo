@@ -17,6 +17,9 @@
     type Household,
     type Diner,
   } from "$lib/household";
+  import GenerationDialog, {
+    type GenerationOptions,
+  } from "$lib/components/GenerationDialog.svelte";
   import { onMount } from "svelte";
   import {
     db,
@@ -51,7 +54,7 @@
   let week = $state(weekDates());
   let selectedDay = $state<string | null>(null);
   let priorities = $state<PantryPriority[]>([]);
-  let newPriority = $state("");
+  let generationOpen = $state(false);
   let ratings = $state<RecipeRating[]>([]);
   let selectedRecipe = $state<string | null>(null);
   let cuisineFilter = $state("");
@@ -274,23 +277,22 @@
     priorities.filter((p) =>
       recipe.ingredients.some((i) => normalize(i.name) === normalize(p.name)),
     );
-  async function addPriority() {
-    const name = newPriority.trim();
-    if (!name) return;
-    if (!priorities.some((p) => normalize(p.name) === normalize(name)))
-      await db.priorities.add({
-        id: crypto.randomUUID(),
-        name,
-        createdAt: new Date().toISOString(),
-      });
-    newPriority = "";
+  async function startGeneration(options: GenerationOptions) {
+    generationOpen = false;
+    await db.transaction("rw", db.priorities, async () => {
+      await db.priorities.clear();
+      await db.priorities.bulkPut(
+        options.ingredients.map((name) => ({
+          id: crypto.randomUUID(),
+          name,
+          createdAt: new Date().toISOString(),
+        })),
+      );
+    });
     await refresh();
+    await generate(options);
   }
-  async function removePriority(id: string) {
-    await db.priorities.delete(id);
-    await refresh();
-  }
-  async function generate() {
+  async function generate(options: GenerationOptions) {
     if (generating) return;
     generating = true;
     message = "";
@@ -304,8 +306,8 @@
       const used = new Set(
         plans.filter((p) => week.includes(p.date)).map((p) => p.recipeId),
       );
-      for (const date of week)
-        for (const meal of ["comida", "cena"] as Meal[]) {
+      for (const date of week.filter((d) => options.dates.includes(d)))
+        for (const meal of options.meals) {
           if (mealFor(date, meal)) continue;
           const draft: PlannedMeal = {
             id: "draft",
@@ -541,6 +543,17 @@
     content="Planificador semanal local de comidas"
   /></svelte:head
 >
+{#if generationOpen}<GenerationDialog
+    {week}
+    ingredients={priorities.map((p) => p.name)}
+    configured={household.configured}
+    close={() => (generationOpen = false)}
+    submit={startGeneration}
+    openProfile={() => {
+      generationOpen = false;
+      tab = "settings";
+    }}
+  />{/if}
 <div class="app">
   <header>
     <div>
@@ -676,38 +689,29 @@
     {:else if tab === "plan"}
       <section class="topline">
         <div>
+          <small class="eyebrow">PLANIFICACIÓN</small>
           <h2>Tu semana</h2>
-          <p>Comidas y cenas para tu hogar</p>
+          <p>Un menú que encaja contigo.</p>
         </div>
-        <button class="primary" disabled={generating} onclick={generate}
-          >{generating ? "Generando…" : "Completar menú"}</button
+        <button
+          class="primary"
+          disabled={generating}
+          onclick={() => (generationOpen = true)}
+          >{generating ? "Generando…" : "Generar menú"}</button
         >
       </section>
-      <div class="panel priority-panel">
-        <h3>Productos que quiero gastar</h3>
-        <p class="hint">
-          Añade ingredientes que ya tienes. Al completar el menú, se priorizarán
-          las recetas que los utilicen. No se descuentan automáticamente de la
-          compra.
-        </p>
-        <div class="priority-entry">
-          <input
-            aria-label="Ingrediente que quiero gastar"
-            placeholder="Ej. calabacín, huevos, arroz…"
-            bind:value={newPriority}
-            onkeydown={(e) => {
-              if (e.key === "Enter") addPriority();
-            }}
-          /><button class="primary" onclick={addPriority}>Añadir</button>
+      <div class="plan-overview">
+        <div>
+          <strong
+            >{plans.filter((p) => week.includes(p.date)).length}<span
+              >/ 14 platos</span
+            ></strong
+          >
+          <p>Tu semana, a tu ritmo</p>
         </div>
-        <div class="chiprow">
-          {#each priorities as item}<span class="chip priority-chip"
-              >{item.name}<button
-                aria-label={`Quitar ${item.name}`}
-                onclick={() => removePriority(item.id)}>×</button
-              ></span
-            >{/each}
-        </div>
+        <button class="back" onclick={() => (tab = "shopping")}
+          >Preparar compra <span aria-hidden="true">↗</span></button
+        >
       </div>
       {#if issues.length}<div class="panel">
           <h3>Revisar compatibilidad del menú</h3>
@@ -717,9 +721,6 @@
               >{label(issue.plan.date)} · {issue.plan.meal}: {issue.text}</button
             >{/each}
         </div>{/if}
-      <button class="today-planning" onclick={() => (tab = "shopping")}
-        >Revisar ingredientes y preparar compra →</button
-      >
       <div class="weeknav">
         <button onclick={() => moveWeek(-1)} aria-label="Semana anterior"
           >‹</button
@@ -1243,6 +1244,137 @@
 </div>
 
 <style>
+  .plan-overview {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(120deg, #eaf2e4, #f1f5eb);
+    border: 1px solid #dfe9d7;
+    border-radius: 20px;
+    padding: 20px 22px;
+    margin: 20px 0;
+  }
+  .plan-overview strong {
+    font-size: 28px;
+    letter-spacing: -1px;
+  }
+  .plan-overview strong span {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: #70816d;
+    margin-left: 6px;
+  }
+  .plan-overview p {
+    font-size: 12px;
+    color: #70816d;
+    margin: 4px 0 0;
+  }
+  .plan-overview .back {
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  .today-grid .today-meal {
+    margin: 0;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    box-shadow: 0 4px 20px #24342a04;
+  }
+  .today-meal .servings {
+    width: 100%;
+    padding: 12px 0;
+    margin-top: 4px;
+    border-top: 1px solid #edf1e8;
+  }
+  .today-meal .status-row {
+    margin: 8px 0 12px;
+    gap: 7px;
+    width: 100%;
+  }
+  .today-meal .status-row button {
+    flex: 1;
+    padding: 10px 8px;
+    font-size: 12px;
+  }
+  .today-meal .today-edit {
+    align-self: stretch;
+    margin-top: auto;
+    text-align: left;
+  }
+  .today-meal .hint {
+    margin: 6px 0 12px;
+  }
+  .today-meal .back {
+    padding: 10px 0;
+    margin-bottom: 8px;
+  }
+  .today-grid + .today-planning {
+    margin-top: 20px;
+    padding: 16px 18px;
+    text-align: left;
+    background: #fff;
+    border-color: #e1e9da;
+    border-radius: 16px;
+  }
+  .topline > div {
+    min-width: 0;
+  }
+  .topline h2 {
+    margin-top: 5px;
+  }
+  .days .day {
+    padding: 20px;
+    box-shadow: 0 3px 12px #24342a03;
+  }
+  .days .day:hover {
+    border-color: #a9c19b;
+    background: #fdfefb;
+  }
+  .days .meals {
+    gap: 16px;
+  }
+  .weeknav {
+    box-shadow: 0 2px 10px #24342a03;
+  }
+  :global(button:focus-visible) {
+    outline: 2px solid #315f46;
+    outline-offset: 3px;
+  }
+  @media (max-width: 480px) {
+    .topline {
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .topline > .primary {
+      margin-top: 4px;
+      padding: 12px;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .plan-overview {
+      padding: 17px;
+    }
+    .today-grid .today-meal {
+      padding: 20px;
+    }
+    .plan-overview .back {
+      font-size: 12px;
+    }
+    header {
+      padding-bottom: 12px;
+    }
+    main {
+      padding: 0 16px;
+    }
+    .topline p {
+      font-size: 13px;
+    }
+  }
+
   .quantity-grid label {
     display: grid;
     gap: 6px;
@@ -1683,32 +1815,6 @@
   .reuse-row button:disabled {
     opacity: 0.4;
   }
-  .priority-panel {
-    margin-bottom: 14px;
-  }
-  .priority-entry {
-    display: flex;
-    gap: 8px;
-  }
-  .priority-entry input {
-    min-width: 0;
-    flex: 1;
-    padding: 10px;
-    border: 1px solid #d9e5d8;
-    border-radius: 10px;
-  }
-  .priority-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .priority-chip button {
-    border: 0;
-    background: transparent;
-    color: #315f46;
-    font-size: 18px;
-    line-height: 1;
-  }
   .today-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
@@ -1739,5 +1845,16 @@
   nav button {
     min-width: 0;
     font-size: 12px;
+  }
+  @media (max-width: 480px) {
+    main {
+      padding: 0 16px;
+    }
+    .topline p {
+      font-size: 13px;
+    }
+    header {
+      padding-bottom: 12px;
+    }
   }
 </style>
