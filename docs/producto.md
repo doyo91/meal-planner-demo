@@ -64,7 +64,7 @@ Además se declara si puede omitirse y qué alérgenos/derivados contiene. Sin c
 
 ### Compra y existencias
 
-- Dos pasos: «Revisar en casa» y «Lista del súper». No se muestran gramos, unidades ni campos de cantidades en estas pantallas.
+- Dos pasos: «Revisar en casa» y «Lista del súper». «Revisar en casa» muestra la cantidad total necesaria por ingrediente y unidad para la semana seleccionada, calculada según las recetas, variantes y raciones de sus comensales, descontando las omisiones individuales. Si hay unidades diferentes, se muestran separadas, sin sumar ni convertir unidades incompatibles. La lista del súper mantiene solo nombres y checks; no hay campos para introducir cantidades.
 - Revisar muestra los ingredientes necesarios para el menú semanal. Cada ingrediente ofrece «Tengo suficiente» o «Comprar»; lo no elegido permanece por revisar.
 - La lista del súper contiene únicamente ingredientes marcados «Comprar», con checks persistentes por semana. Desmarcar devuelve el producto a pendiente. Los ingredientes sin revisar no se añaden por defecto.
 - Se muestra una sola fila por nombre de ingrediente, aunque varias recetas o unidades lo utilicen. Internamente se conservan las cantidades por unidad, variante y raciones individuales, descontando las omisiones.

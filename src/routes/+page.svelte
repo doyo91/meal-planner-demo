@@ -1007,13 +1007,20 @@
         </div>
       {:else if shoppingMode === "review"}
         <p class="hint">
-          Estos son los ingredientes de tu menú. Indica si tienes suficiente
-          para lo planificado o si necesitas comprar.
+          Cantidades necesarias para las recetas y los comensales de esta semana.
+          Indica si tienes suficiente en casa o si necesitas comprar.
         </p>
         <div class="shopping-review-list">
           {#each guide as item}<article class="review-row">
               <div>
                 <h3>{item.name}</h3>
+                <p class="required-quantity">
+                  Necesario esta semana: {item.items
+                    .map((quantity) =>
+                      `${quantity.amount.toLocaleString("es-ES", { maximumFractionDigits: 2 })} ${quantity.unit}`.trim(),
+                    )
+                    .join(" + ")}
+                </p>
                 <small
                   >{item.intent === "home"
                     ? "Ya lo tienes"
@@ -1186,6 +1193,12 @@
   .review-row h3 {
     font-size: 14px;
     margin: 0 0 4px;
+  }
+  .required-quantity {
+    margin: 0 0 6px;
+    color: #365d40;
+    font-size: 13px;
+    line-height: 1.5;
   }
   .review-row small {
     color: #7a8973;
