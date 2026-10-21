@@ -218,3 +218,77 @@ test("substitutions respect equipment and diner restrictions, including alternat
     [],
   );
 });
+test("shopping guide starts unreviewed and shows only explicitly requested products to buy", async () => {
+  const { shoppingGuide } = await import("../src/lib/shopping.ts");
+  assert.equal(shoppingGuide(plans, recipes, [], week)[0].intent, undefined);
+  const confirmed = {
+    ...review,
+    intent: "buy",
+    checked: false,
+    confirmedAmount: 300,
+  };
+  let item = shoppingGuide(plans, recipes, [confirmed], week)[0];
+  assert.equal(item.intent, "buy");
+  assert.equal(item.checked, false);
+  item = shoppingGuide(
+    plans,
+    recipes,
+    [{ ...confirmed, checked: true }],
+    week,
+  )[0];
+  assert.equal(item.checked, true);
+  assert.equal(
+    shoppingGuide(plans, recipes, [{ ...confirmed, intent: "home" }], week)[0]
+      .intent,
+    "home",
+  );
+});
+test("shopping decisions need review after increased demand and are isolated by week", async () => {
+  const { shoppingGuide } = await import("../src/lib/shopping.ts");
+  const confirmed = {
+    ...review,
+    intent: "buy",
+    checked: true,
+    confirmedAmount: 300,
+  };
+  assert.equal(
+    shoppingGuide([{ ...plans[0], servings: 4 }], recipes, [confirmed], week)[0]
+      .intent,
+    undefined,
+  );
+  assert.equal(
+    shoppingGuide([{ ...plans[0], servings: 2 }], recipes, [confirmed], week)[0]
+      .checked,
+    true,
+  );
+  assert.equal(
+    shoppingGuide(plans, recipes, [confirmed], "2026-10-26")[0].intent,
+    undefined,
+  );
+  assert.deepEqual(shoppingGuide([], recipes, [confirmed], week), []);
+});
+test("same ingredient across units has one row and every unit must be reviewed", async () => {
+  const { shoppingGuide } = await import("../src/lib/shopping.ts");
+  const mixed = [
+    {
+      ...recipes[0],
+      ingredients: [
+        ...recipes[0].ingredients,
+        { name: "Arroz", amount: 1, unit: "ud" },
+      ],
+    },
+  ];
+  const confirmed = { ...review, intent: "home", confirmedAmount: 300 };
+  const groups = shoppingGuide(plans, mixed, [confirmed], week);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].items.length, 2);
+  assert.equal(groups[0].intent, undefined);
+});
+test("legacy quantities remain readable without inventing availability", async () => {
+  const { shoppingGuide } = await import("../src/lib/shopping.ts");
+  assert.equal(shoppingGuide(plans, recipes, [review], week)[0].intent, "buy");
+  assert.equal(
+    shoppingGuide(plans, recipes, [{ ...review, stock: 300 }], week)[0].intent,
+    "home",
+  );
+});

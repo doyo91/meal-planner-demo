@@ -216,9 +216,9 @@
   <details>
     <summary>Existencias y compra</summary>
     <p>
-      Revisa lo que tienes cada semana. Registra compras completas o parciales y
-      productos no conseguidos. Las cantidades se ajustan a las variantes y
-      raciones, incluidas las omisiones individuales. No se consume ni traslada
+      Revisa los ingredientes de la semana y marca «Tengo suficiente» o
+      «Comprar». La lista del súper incluye únicamente lo que necesitas comprar,
+      con checks para marcarlo conforme lo coges. No se consume ni traslada
       inventario automáticamente.
     </p>
   </details>

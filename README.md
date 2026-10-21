@@ -16,8 +16,8 @@ Para publicar: GitHub → Settings → Pages → Source: GitHub Actions. El work
 - **Hoy**: comida y cena, raciones, estado, receta y valoración después de realizarla.
 - **Planificar**: selección manual, completar huecos automáticamente, productos que gastar y platos fijados. Se conserva el menú existente.
 - **Recetas**: búsqueda, filtros, detalle y creación con ingredientes y preparación.
-- **Compra**: cantidades necesarias, existencias confirmadas, compras parciales y productos no conseguidos. Las revisiones se guardan por semana e ingrediente/unidad.
-- **Sustituciones**: propuestas que reducen los ingredientes no conseguidos, respetan platos fijados y realizados, y se aplican tras revisar los cambios. Pueden quedar faltantes; no es un optimizador completo del menú.
+- **Compra**: revisar ingredientes con «Tengo suficiente» o «Comprar» y usar una lista del súper con checks, sin cantidades visibles. Las revisiones se guardan por semana.
+- Las propuestas de sustitución y el registro de compras parciales de la versión anterior ya no se exponen en la interfaz simplificada de Compra.
 
 Las existencias no se trasladan entre semanas ni se consumen automáticamente. «Tengo suficiente» registra la cantidad necesaria en ese momento: si aumentan las raciones, se vuelve a calcular lo que falta. Las marcas de compra antiguas se conservan en la base de datos, pero no se convierten en cantidades sin confirmar.
 
