@@ -325,3 +325,19 @@ test("home review totals selected variants and diner portions across the week's 
   const fewer = shoppingGuide([{ ...meal, portions: [{ dinerId: "single", servings: 1 }] }], [recipe], [], week);
   assert.equal(fewer.find((item) => item.name === "Arroz").items[0].amount, 100);
 });
+
+test("grocery minimum discounts confirmed coverage and stays visible after checking", async () => {
+  const { shoppingGuide } = await import("../src/lib/shopping.ts");
+  assert.equal(shoppingGuide(plans, recipes, [review], week)[0].items[0].purchaseAmount, 150);
+  const buy = { ...review, intent: "buy", stock: 0, purchased: 0, confirmedAmount: 300, checked: false };
+  assert.equal(shoppingGuide(plans, recipes, [buy], week)[0].items[0].purchaseAmount, 300);
+  const checked = shoppingGuide(plans, recipes, [{ ...buy, checked: true }], week)[0];
+  assert.equal(checked.items[0].purchaseAmount, 300);
+  assert.equal(checked.items[0].missing, 0);
+  const partial = shoppingGuide(plans, recipes, [{ ...buy, stock: 150, checked: true }], week)[0];
+  assert.equal(partial.items[0].purchaseAmount, 150);
+  assert.equal(partial.items[0].missing, 0);
+  const increased = shoppingGuide([{ ...plans[0], servings: 4 }], recipes, [buy], week)[0];
+  assert.equal(increased.intent, undefined);
+  assert.equal(increased.items[0].purchaseAmount, 400);
+});

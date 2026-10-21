@@ -34,11 +34,11 @@ export function shoppingReview(
     const stock = review?.intent
       ? review.intent === "home"
         ? (review.confirmedAmount ?? 0)
-        : 0
+        : (review.stock ?? 0)
       : (review?.stock ?? 0);
     const purchased = review?.intent
       ? review.intent === "buy" && review.checked
-        ? (review.confirmedAmount ?? 0)
+        ? Math.max(0, (review.confirmedAmount ?? 0) - stock)
         : 0
       : (review?.purchased ?? 0);
     return {
@@ -51,6 +51,8 @@ export function shoppingReview(
       sufficient: !!review?.sufficient,
       unavailable: !!review?.unavailable,
       missing: Math.max(0, item.amount - stock - purchased),
+      // Keep the purchase target visible after checking the grocery item.
+      purchaseAmount: Math.max(0, item.amount - stock - (review?.intent ? 0 : purchased)),
     };
   });
 }

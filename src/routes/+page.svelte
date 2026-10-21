@@ -106,6 +106,9 @@
       week[0],
     ),
   );
+  const formatQuantities = (items: { amount: number; unit: string }[]) =>
+    items.map((q) => `${(Math.ceil(q.amount * 100) / 100).toLocaleString("es-ES", { maximumFractionDigits: 2 })} ${q.unit}`.trim()).join(" + ");
+  let reviewPending = $derived(guide.filter((item) => !item.intent).length);
   let groceryList = $derived(guide.filter((item) => item.intent === "buy"));
   let leftovers = $derived(
     plans
@@ -408,6 +411,7 @@
     group: (typeof guide)[number],
     intent: "home" | "buy",
     checked = false,
+    preserveCoverage = false,
   ) {
     await db.transaction("rw", db.ingredientReviews, async () => {
       for (const item of group.items)
@@ -418,6 +422,7 @@
           intent,
           checked,
           confirmedAmount: item.amount,
+          stock: preserveCoverage ? item.amount - item.purchaseAmount : 0,
           purchased: 0,
           unavailable: false,
         });
@@ -1010,23 +1015,23 @@
           Cantidades necesarias para las recetas y los comensales de esta semana.
           Indica si tienes suficiente en casa o si necesitas comprar.
         </p>
+        <div class="review-progress" class:complete={reviewPending === 0} role="status">
+          <strong>{reviewPending ? `${reviewPending} por revisar` : "Todo revisado"}</strong>
+          <span>{guide.length - reviewPending} de {guide.length} revisados</span>
+        </div>
         <div class="shopping-review-list">
-          {#each guide as item}<article class="review-row">
+          {#each guide as item}<article class="review-row" class:pending={!item.intent} class:reviewed={!!item.intent}>
               <div>
                 <h3>{item.name}</h3>
                 <p class="required-quantity">
-                  Necesario esta semana: {item.items
-                    .map((quantity) =>
-                      `${quantity.amount.toLocaleString("es-ES", { maximumFractionDigits: 2 })} ${quantity.unit}`.trim(),
-                    )
-                    .join(" + ")}
+                  Necesario esta semana: {formatQuantities(item.items)}
                 </p>
-                <small
+                <small class="review-badge"
                   >{item.intent === "home"
-                    ? "Ya lo tienes"
+                    ? "✓ Revisado · Ya lo tienes"
                     : item.intent === "buy"
-                      ? "En la lista de compra"
-                      : "Por revisar"}</small
+                      ? "✓ Revisado · En la lista de compra"
+                      : "! Pendiente de revisar"}</small
                 >
               </div>
               <div class="review-actions">
@@ -1066,8 +1071,10 @@
                   type="checkbox"
                   checked={item.checked}
                   onchange={(e) =>
-                    setShoppingDecision(item, "buy", e.currentTarget.checked)}
-                /><span>{item.name}</span></label
+                    setShoppingDecision(item, "buy", e.currentTarget.checked, true)}
+                /><span class="grocery-product"><span>{item.name}</span><small>
+                  Mínimo a comprar: {formatQuantities(item.items.filter((q) => q.purchaseAmount > 0).map((q) => ({ amount: q.purchaseAmount, unit: q.unit })))}
+                </small></span></label
               >{/each}
           </div>{:else}<div class="empty">
             <h3>
@@ -1193,6 +1200,53 @@
   .review-row h3 {
     font-size: 14px;
     margin: 0 0 4px;
+  }
+  .review-progress {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    border: 1px solid #e6c78c;
+    border-radius: 12px;
+    background: #fff5df;
+    color: #79511b;
+    font-size: 13px;
+  }
+  .review-progress.complete {
+    background: #edf5e9;
+    border-color: #c7dbc0;
+    color: #315f46;
+  }
+  .review-row.pending {
+    background: #fffbf2;
+    border-left: 4px solid #c5943c;
+  }
+  .review-row.reviewed {
+    background: #f4f8f0;
+    border-left: 4px solid #84a779;
+  }
+  .review-row .review-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #e6efdf;
+    color: #365d40;
+    font-weight: 600;
+  }
+  .review-row.pending .review-badge {
+    background: #f9e9c6;
+    color: #79511b;
+  }
+  .grocery-product {
+    display: grid;
+    gap: 5px;
+  }
+  .grocery-product small {
+    font-size: 12px;
+    color: #58724e;
+    line-height: 1.5;
   }
   .required-quantity {
     margin: 0 0 6px;
