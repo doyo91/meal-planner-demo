@@ -54,6 +54,8 @@ Además se declara si puede omitirse y qué alérgenos/derivados contiene. Sin c
 ### Planificación
 
 - Manual por día y comida/cena, o completar automáticamente los huecos. No se sobrescriben platos existentes.
+- «Generar menú» abre un diálogo previo: días de la semana, comidas/cenas e ingredientes opcionales que se quieren gastar. El bloque de ingredientes no permanece en la pantalla de planificación.
+- Los ingredientes se recuerdan entre generaciones; solo se guardan al confirmar. Cancelar o cerrar con Escape descarta los cambios del diálogo y no modifica el menú. La generación se limita a los días y momentos elegidos.
 - Las propuestas respetan momento de comida, equipamiento confirmado, participantes y exclusiones. Evitan preparaciones con impedimentos o advertencias pendientes.
 - Productos que quiero gastar priorizan recetas por coincidencia explícita de ingrediente. No equivalen a existencias confirmadas ni descuentan cantidades de compra.
 - Los platos se pueden fijar; las propuestas de sustitución respetan platos fijados y realizados.
