@@ -64,14 +64,15 @@ Además se declara si puede omitirse y qué alérgenos/derivados contiene. Sin c
 
 ### Compra y existencias
 
-- Agrupar por ingrediente y unidad. Sumar las cantidades de cada variante y descontar las omisiones individuales.
-- Las comidas no realizadas se excluyen de la demanda semanal. Las realizadas permanecen en el total semanal; no es un inventario con consumo automático.
-- Existencias y compras se revisan por semana. Datos: necesario, tengo, comprado, pendiente y no conseguido.
-- «Tengo suficiente» registra la cantidad necesaria en ese momento, sin crear existencias infinitas. Aumentar raciones vuelve a calcular los faltantes.
-- Las compras parciales se descuentan. Las cantidades pendientes nunca son negativas. No se trasladan existencias entre semanas.
-- Las marcas antiguas de compra se conservan, pero no se convierten en cantidades confirmadas.
-- Un producto no conseguido señala los platos afectados. Se proponen cambios de receta o variante que reduzcan faltantes sin aumentar otros productos no conseguidos, respetando equipo y restricciones.
-- Las propuestas se muestran antes de aplicar. Son una heurística: pueden quedar faltantes; no se promete encontrar todas las combinaciones posibles.
+- Dos pasos: «Revisar en casa» y «Lista del súper». No se muestran gramos, unidades ni campos de cantidades en estas pantallas.
+- Revisar muestra los ingredientes necesarios para el menú semanal. Cada ingrediente ofrece «Tengo suficiente» o «Comprar»; lo no elegido permanece por revisar.
+- La lista del súper contiene únicamente ingredientes marcados «Comprar», con checks persistentes por semana. Desmarcar devuelve el producto a pendiente. Los ingredientes sin revisar no se añaden por defecto.
+- Se muestra una sola fila por nombre de ingrediente, aunque varias recetas o unidades lo utilicen. Internamente se conservan las cantidades por unidad, variante y raciones individuales, descontando las omisiones.
+- «Tengo suficiente» y el check de compra confirman internamente la demanda actual, sin crear existencias infinitas. Si aumenta la demanda por encima de lo confirmado, o aparece otra unidad para el mismo ingrediente, se pide revisar otra vez. Reducir la demanda conserva las decisiones que siguen cubriéndola.
+- Los ingredientes dejan de aparecer cuando ya no son necesarios para ese menú. No se trasladan decisiones a otras semanas.
+- Las comidas no realizadas se excluyen; las realizadas permanecen en el total semanal. No hay consumo automático de inventario.
+- Los registros antiguos con cantidades se conservan: si cubren la demanda se interpretan como disponible; si tienen faltantes se propone comprar; sin revisión previa permanecen sin revisar. Los checks antiguos sin cantidades confirmadas no se convierten en existencias.
+- La interfaz simplificada sustituye el registro de compras parciales, productos no conseguidos y propuestas de sustitución desde Compra. Los datos y funciones anteriores se conservan por compatibilidad; los estados antiguos de «no conseguido» ya no limitan la generación actual.
 
 ## Acordado, pendiente
 

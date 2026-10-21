@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
-    shoppingReview,
-    proposeSubstitutions,
+    shoppingGuide,
     reviewId,
     type IngredientReview,
   } from "$lib/shopping";
@@ -44,10 +43,7 @@
   let detailVariantId = $state("");
   let message = $state("");
   let generating = $state(false);
-  let alternatives = $state<
-    { planId: string; recipeId: string; variantId?: string }[]
-  >([]);
-  let proposalMessage = $state("");
+  let shoppingMode = $state<"review" | "list">("review");
 
   let ready = $state(false);
   let search = $state("");
@@ -102,32 +98,15 @@
   let tags = $derived(
     [...new Set(recipes.flatMap((r) => r.tags ?? []))].sort(),
   );
-  let shopping = $derived(
-    shoppingReview(
+  let guide = $derived(
+    shoppingGuide(
       plans.filter((p) => week.includes(p.date)),
       recipes,
       reviews,
       week[0],
     ),
   );
-  let affected = $derived(
-    plans.filter(
-      (p) =>
-        week.includes(p.date) &&
-        p.status === "pendiente" &&
-        ingredientsForMeal(
-          recipes.find((r) => r.id === p.recipeId)!,
-          p,
-        ).some((i) =>
-          shopping.some(
-            (s) =>
-              s.id === `${i.name.toLowerCase()}|${i.unit}` &&
-              s.unavailable &&
-              s.missing > 0,
-          ),
-        ),
-    ),
-  );
+  let groceryList = $derived(guide.filter((item) => item.intent === "buy"));
   let leftovers = $derived(
     plans
       .filter((p) => p.status === "no_realizada" && p.date < week[0])
@@ -144,8 +123,6 @@
     plans.find((p) => p.date === date && p.meal === meal);
 
   async function refresh() {
-    alternatives = [];
-    proposalMessage = "";
     [recipes, plans] = await Promise.all([
       db.recipes.toArray(),
       db.plans.toArray(),
@@ -323,15 +300,7 @@
               variantsOf(r).some(
                 (v) =>
                   mealAssessment(r, v.id, draft.portions!, diners, household)
-                    .automatic &&
-                  !v.ingredients.some((i) =>
-                    shopping.some(
-                      (s) =>
-                        s.id === `${i.name.toLowerCase()}|${i.unit}` &&
-                        s.unavailable &&
-                        s.missing > 0,
-                    ),
-                  ),
+                    .automatic,
               ),
           );
           const pool = eligible.filter((r) => !used.has(r.id));
@@ -355,15 +324,7 @@
                   draft.portions!,
                   diners,
                   household,
-                ).automatic &&
-                !v.ingredients.some((i) =>
-                  shopping.some(
-                    (s) =>
-                      s.id === `${i.name.toLowerCase()}|${i.unit}` &&
-                      s.unavailable &&
-                      s.missing > 0,
-                  ),
-                ),
+                ).automatic,
             )!;
             await db.plans.put({
               ...draft,
@@ -443,19 +404,23 @@
     await seed();
     await refresh();
   }
-  async function reviewIngredient(
-    ingredientId: string,
-    changes: Partial<IngredientReview>,
+  async function setShoppingDecision(
+    group: (typeof guide)[number],
+    intent: "home" | "buy",
+    checked = false,
   ) {
-    const id = reviewId(week[0], ingredientId);
-    await db.ingredientReviews.put({
-      id,
-      week: week[0],
-      ingredientId,
-      purchased: 0,
-      unavailable: false,
-      ...reviews.find((r) => r.id === id),
-      ...changes,
+    await db.transaction("rw", db.ingredientReviews, async () => {
+      for (const item of group.items)
+        await db.ingredientReviews.put({
+          id: reviewId(week[0], item.id),
+          week: week[0],
+          ingredientId: item.id,
+          intent,
+          checked,
+          confirmedAmount: item.amount,
+          purchased: 0,
+          unavailable: false,
+        });
     });
     await refresh();
   }
@@ -465,46 +430,6 @@
       await db.plans.update(p.id, { locked: !p.locked });
       await refresh();
     }
-  }
-  function proposeAlternatives() {
-    alternatives = proposeSubstitutions(
-      plans.filter((p) => week.includes(p.date)),
-      recipes,
-      reviews,
-      week[0],
-      priorities.map((p) => p.name),
-      household,
-      diners,
-    );
-    proposalMessage = alternatives.length
-      ? "Revisa los cambios antes de aplicarlos."
-      : "No hay sustituciones que reduzcan los ingredientes pendientes. Revisa los platos manualmente o añade recetas.";
-  }
-  async function applyAlternatives() {
-    await db.transaction("rw", db.plans, async () => {
-      for (const change of alternatives)
-        await db.plans.update(change.planId, {
-          recipeId: change.recipeId,
-          variantId: change.variantId,
-          contactReviewed: false,
-          portions: mealAssessment(
-            recipes.find((r) => r.id === change.recipeId)!,
-            change.variantId,
-            plans
-              .find((p) => p.id === change.planId)
-              ?.portions?.map((p) => ({ ...p, omitted: [] })) ?? [
-              {
-                dinerId: "single",
-                servings:
-                  plans.find((p) => p.id === change.planId)?.servings ?? 1,
-              },
-            ],
-            diners,
-            household,
-          ).portions,
-        });
-    });
-    await refresh();
   }
   async function saveRecipe(recipe: Recipe) {
     if (
@@ -532,8 +457,6 @@
     d.setDate(d.getDate() + 7 * direction);
     week = weekDates(d);
     selectedDay = null;
-    alternatives = [];
-    proposalMessage = "";
   }
 </script>
 
@@ -1044,10 +967,18 @@
     {:else if tab === "shopping"}
       <section class="topline">
         <div>
-          <h2>Ingredientes y compra</h2>
-          <p>{label(week[0])} — {label(week[6])}</p>
+          <small class="eyebrow">COMPRA</small>
+          <h2>
+            {shoppingMode === "review"
+              ? "Antes de salir"
+              : "Tu lista del súper"}
+          </h2>
+          <p>
+            {shoppingMode === "review"
+              ? "Revisa lo que ya tienes en casa."
+              : "Lo que necesitas, sin complicaciones."}
+          </p>
         </div>
-        <button class="back" onclick={() => (tab = "plan")}>Ver menú →</button>
       </section>
       <div class="weeknav">
         <button onclick={() => moveWeek(-1)} aria-label="Semana anterior"
@@ -1057,138 +988,98 @@
           aria-label="Semana siguiente">›</button
         >
       </div>
-      <p class="hint">
-        1. Revisa lo que tienes para esta semana. 2. Registra lo comprado. 3.
-        Revisa los platos si falta algún producto. Las existencias se confirman
-        por semana; no se trasladan ni consumen automáticamente.
-      </p>
-      <div class="summary">
-        <strong
-          >{shopping.filter((i) => i.missing > 0).length} productos pendientes</strong
-        ><span>{shopping.filter((i) => !i.reviewed).length} sin revisar</span>
+      <div class="shopping-tabs" role="group" aria-label="Pasos de la compra">
+        <button
+          class:chosen={shoppingMode === "review"}
+          onclick={() => (shoppingMode = "review")}>1. Revisar en casa</button
+        ><button
+          class:chosen={shoppingMode === "list"}
+          onclick={() => (shoppingMode = "list")}
+          >2. Lista del súper <span>{groceryList.length}</span></button
+        >
       </div>
-      {#each shopping as item}
-        <article class="panel ingredient-review">
-          <h3>
-            {item.name}
-            <small
-              >Necesario: {Number(item.amount.toFixed(2))} {item.unit}</small
-            >
-          </h3>
-          <div class="status-row">
-            <button
-              onclick={() =>
-                reviewIngredient(item.id, {
-                  stock: item.amount,
-                  sufficient: true,
-                })}>Tengo suficiente</button
-            ><button
-              onclick={() =>
-                reviewIngredient(item.id, { stock: 0, sufficient: false })}
-              >No tengo</button
-            ><button
-              onclick={() =>
-                reviewIngredient(item.id, {
-                  stock: undefined,
-                  sufficient: false,
-                })}>Revisar después</button
-            >
-          </div>
-          <div class="quantity-grid">
-            <label
-              >Tengo ({item.unit})<input
-                aria-label={`Tengo ${item.name}`}
-                type="number"
-                min="0"
-                step="any"
-                value={item.reviewed ? item.stock : ""}
-                onchange={(e) => {
-                  const n = e.currentTarget.valueAsNumber;
-                  if (Number.isFinite(n) && n >= 0)
-                    reviewIngredient(item.id, { stock: n, sufficient: false });
-                }}
-              /></label
-            ><label
-              >Comprado ({item.unit})<input
-                aria-label={`Comprado ${item.name}`}
-                type="number"
-                min="0"
-                step="any"
-                value={item.purchased}
-                onchange={(e) => {
-                  const n = e.currentTarget.valueAsNumber;
-                  if (Number.isFinite(n) && n >= 0)
-                    reviewIngredient(item.id, { purchased: n });
-                }}
-              /></label
-            >
-          </div>
-          <p>
-            <strong
-              >{item.missing > 0
-                ? `Falta: ${Number(item.missing.toFixed(2))} ${item.unit}`
-                : "Cantidad cubierta"}</strong
-            >
-            · {item.reviewed
-              ? "Existencias revisadas"
-              : "Existencias sin revisar"}
-          </p>
-          <div class="status-row">
-            <button
-              onclick={() =>
-                reviewIngredient(item.id, {
-                  purchased: item.purchased + item.missing,
-                  unavailable: false,
-                })}
-              disabled={!item.missing}>Comprado lo que falta</button
-            ><button
-              class:status-active={item.unavailable}
-              onclick={() =>
-                reviewIngredient(item.id, { unavailable: !item.unavailable })}
-              >{item.unavailable
-                ? "No conseguido · desmarcar"
-                : "No lo he conseguido"}</button
-            >
-          </div>
-        </article>
-      {:else}<div class="empty">
-          Planifica alguna comida para revisar ingredientes.
-        </div>{/each}
-      {#if affected.length}<div class="panel">
-          <h3>Platos que necesitan revisión</h3>
-          <button class="primary" onclick={proposeAlternatives}
-            >Proponer sustituciones</button
+      {#if !guide.length}<div class="empty">
+          <h3>Todavía no hay ingredientes</h3>
+          <p>Añade platos a la semana para preparar tu compra.</p>
+          <button class="back" onclick={() => (tab = "plan")}
+            >Ir a Planificación →</button
           >
-          <p class="hint">
-            Faltan productos que no has conseguido. Puedes cambiar estos platos;
-            completar el menú evitará esos ingredientes. Los platos fijados se
-            conservan. No se modifica ningún plato sin que lo elijas.
+        </div>
+      {:else if shoppingMode === "review"}
+        <p class="hint">
+          Estos son los ingredientes de tu menú. Indica si tienes suficiente
+          para lo planificado o si necesitas comprar.
+        </p>
+        <div class="shopping-review-list">
+          {#each guide as item}<article class="review-row">
+              <div>
+                <h3>{item.name}</h3>
+                <small
+                  >{item.intent === "home"
+                    ? "Ya lo tienes"
+                    : item.intent === "buy"
+                      ? "En la lista de compra"
+                      : "Por revisar"}</small
+                >
+              </div>
+              <div class="review-actions">
+                <button
+                  class:chosen={item.intent === "home"}
+                  aria-pressed={item.intent === "home"}
+                  onclick={() => setShoppingDecision(item, "home")}
+                  >Tengo suficiente</button
+                ><button
+                  class:chosen={item.intent === "buy"}
+                  aria-pressed={item.intent === "buy"}
+                  onclick={() => setShoppingDecision(item, "buy")}
+                  >Comprar</button
+                >
+              </div>
+            </article>{/each}
+        </div>
+        <div class="shopping-next">
+          <p>
+            {guide.filter((i) => !i.intent).length
+              ? `${guide.filter((i) => !i.intent).length} ingredientes por revisar`
+              : "Todo revisado. Ya puedes preparar la compra."}
           </p>
-          {#each affected as p}<button
-              class="today-planning"
-              onclick={() => {
-                selectedDay = p.date;
-                tab = "plan";
-              }}>{label(p.date)} · {p.meal}: {recipeName(p.recipeId)} →</button
-            >{/each}{#if proposalMessage}<p role="status">
-              {proposalMessage}
-            </p>{/if}{#if alternatives.length}<ul>
-              {#each alternatives as change}<li>
-                  {recipeName(
-                    plans.find((p) => p.id === change.planId)!.recipeId,
-                  )} → {recipeName(change.recipeId)}
-                </li>{/each}
-            </ul>
-            <button class="primary" onclick={applyAlternatives}
-              >Aplicar cambios propuestos</button
-            ><button
-              class="back"
-              onclick={() => {
-                alternatives = [];
-                proposalMessage = "";
-              }}>Descartar</button
-            >{/if}
-        </div>{/if}
+          <button class="primary" onclick={() => (shoppingMode = "list")}
+            >Ver lista del súper →</button
+          >
+        </div>
+      {:else}
+        <div class="summary">
+          <strong>{groceryList.length} productos</strong><span
+            >{groceryList.filter((i) => i.checked).length} comprados</span
+          >
+        </div>
+        {#if groceryList.length}<div class="grocery-list">
+            {#each groceryList as item}<label class:done={item.checked}
+                ><input
+                  type="checkbox"
+                  checked={item.checked}
+                  onchange={(e) =>
+                    setShoppingDecision(item, "buy", e.currentTarget.checked)}
+                /><span>{item.name}</span></label
+              >{/each}
+          </div>{:else}<div class="empty">
+            <h3>
+              {guide.some((i) => !i.intent)
+                ? "Prepara tu lista"
+                : "Tienes todo lo necesario"}
+            </h3>
+            <p>
+              {guide.some((i) => !i.intent)
+                ? "Marca «Comprar» en los ingredientes que te falten."
+                : "No hay productos pendientes de añadir a la compra."}
+            </p>
+          </div>{/if}
+        {#if guide.some((i) => !i.intent)}<button
+            class="back"
+            onclick={() => (shoppingMode = "review")}
+            >Quedan ingredientes por revisar →</button
+          >{/if}
+      {/if}
     {:else}
       <section class="topline">
         <div>
@@ -1244,6 +1135,136 @@
 </div>
 
 <style>
+  .shopping-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 5px;
+    background: #eaf0e5;
+    border-radius: 14px;
+    margin: 20px 0;
+  }
+  .shopping-tabs button {
+    flex: 1;
+    border: 0;
+    background: none;
+    padding: 12px 8px;
+    border-radius: 10px;
+    color: #6a7c65;
+    font-weight: 650;
+    font-size: 13px;
+  }
+  .shopping-tabs button.chosen {
+    background: white;
+    color: #315f46;
+    box-shadow: 0 2px 8px #24342a0a;
+  }
+  .shopping-tabs span {
+    background: #eaf2e4;
+    border-radius: 20px;
+    padding: 2px 7px;
+    font-size: 11px;
+    margin-left: 4px;
+  }
+  .shopping-review-list,
+  .grocery-list {
+    background: white;
+    border: 1px solid #e2e9dc;
+    border-radius: 18px;
+    overflow: hidden;
+  }
+  .review-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 18px;
+    border-bottom: 1px solid #edf1e8;
+  }
+  .review-row:last-child {
+    border: 0;
+  }
+  .review-row h3 {
+    font-size: 14px;
+    margin: 0 0 4px;
+  }
+  .review-row small {
+    color: #7a8973;
+    font-size: 11px;
+  }
+  .review-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .review-actions button {
+    border: 1px solid #dae5d3;
+    border-radius: 10px;
+    background: white;
+    color: #58724e;
+    padding: 10px;
+    font-size: 12px;
+  }
+  .review-actions .chosen {
+    background: #eaf3e3;
+    border-color: #91b27e;
+    color: #315f46;
+  }
+  .shopping-next {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    margin-top: 20px;
+  }
+  .shopping-next p {
+    color: #70816b;
+    font-size: 12px;
+  }
+  .grocery-list label {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 20px;
+    border-bottom: 1px solid #edf1e8;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .grocery-list label:last-child {
+    border: 0;
+  }
+  .grocery-list input {
+    width: 22px;
+    height: 22px;
+    accent-color: #315f46;
+  }
+  .grocery-list .done span {
+    text-decoration: line-through;
+    color: #94a08e;
+  }
+  .grocery-list .done {
+    background: #fafcf7;
+  }
+  @media (max-width: 440px) {
+    .review-row {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .review-actions {
+      width: 100%;
+    }
+    .review-actions button {
+      flex: 1;
+    }
+    .shopping-next {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .shopping-tabs button {
+      font-size: 12px;
+    }
+  }
+
   .plan-overview {
     display: flex;
     justify-content: space-between;
@@ -1375,30 +1396,6 @@
     }
   }
 
-  .quantity-grid label {
-    display: grid;
-    gap: 6px;
-    font-size: 13px;
-    margin: 12px 0;
-  }
-  .quantity-grid input {
-    width: 100%;
-    min-width: 0;
-    padding: 11px;
-    border: 1px solid #c8ddc7;
-    border-radius: 9px;
-    font: inherit;
-  }
-  .quantity-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .ingredient-review h3 small {
-    display: block;
-    margin-top: 6px;
-    font-weight: 400;
-  }
   .status-row button:disabled {
     opacity: 0.5;
   }

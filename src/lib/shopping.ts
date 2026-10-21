@@ -10,6 +10,9 @@ export interface IngredientReview {
   id: string;
   week: string;
   ingredientId: string;
+  intent?: "home" | "buy";
+  checked?: boolean;
+  confirmedAmount?: number;
   stock?: number;
   sufficient?: boolean;
   purchased: number;
@@ -28,16 +31,70 @@ export function shoppingReview(
     recipes,
   ).map((item) => {
     const review = reviews.find((r) => r.id === reviewId(week, item.id));
-    const stock = review?.stock ?? 0;
-    const purchased = review?.purchased ?? 0;
+    const stock = review?.intent
+      ? review.intent === "home"
+        ? (review.confirmedAmount ?? 0)
+        : 0
+      : (review?.stock ?? 0);
+    const purchased = review?.intent
+      ? review.intent === "buy" && review.checked
+        ? (review.confirmedAmount ?? 0)
+        : 0
+      : (review?.purchased ?? 0);
     return {
       ...item,
       stock,
       purchased,
-      reviewed: review?.stock !== undefined || !!review?.sufficient,
+      reviewed: review?.intent
+        ? (review.confirmedAmount ?? 0) >= item.amount
+        : review?.stock !== undefined || !!review?.sufficient,
       sufficient: !!review?.sufficient,
       unavailable: !!review?.unavailable,
       missing: Math.max(0, item.amount - stock - purchased),
+    };
+  });
+}
+
+export function shoppingGuide(
+  plans: PlannedMeal[],
+  recipes: Recipe[],
+  reviews: IngredientReview[],
+  week: string,
+) {
+  const groups = new Map<
+    string,
+    { id: string; name: string; items: ReturnType<typeof shoppingReview> }
+  >();
+  for (const item of shoppingReview(plans, recipes, reviews, week)) {
+    const id = item.name.trim().toLocaleLowerCase("es");
+    const group = groups.get(id) ?? { id, name: item.name, items: [] };
+    group.items.push(item);
+    groups.set(id, group);
+  }
+  return [...groups.values()].map((group) => {
+    const decisions = group.items.map((item) => {
+      const review = reviews.find((r) => r.id === reviewId(week, item.id));
+      if (review?.intent) {
+        if (!item.reviewed) return { intent: undefined, checked: false };
+        return {
+          intent: review.intent,
+          checked: review.intent === "buy" && !!review.checked,
+        };
+      }
+      if (!item.reviewed) return { intent: undefined, checked: false };
+      if (item.missing === 0) return { intent: "home", checked: false };
+      return { intent: "buy", checked: false };
+    });
+    return {
+      ...group,
+      intent: decisions.some((d) => !d.intent)
+        ? undefined
+        : decisions.some((d) => d.intent === "buy")
+          ? "buy"
+          : "home",
+      checked:
+        decisions.some((d) => d.intent === "buy") &&
+        decisions.filter((d) => d.intent === "buy").every((d) => d.checked),
     };
   });
 }
