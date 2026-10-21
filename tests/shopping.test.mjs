@@ -292,3 +292,36 @@ test("legacy quantities remain readable without inventing availability", async (
     "home",
   );
 });
+
+test("home review totals selected variants and diner portions across the week's meals", async () => {
+  const { shoppingGuide } = await import("../src/lib/shopping.ts");
+  const recipe = {
+    ...recipes[0],
+    variants: [{
+      id: "selected", name: "Seleccionada", servings: 2, minutes: 20,
+      equipment: [], steps: [],
+      ingredients: [
+        { name: "Arroz", amount: 200, unit: "g" },
+        { name: "Arroz", amount: 1, unit: "taza" },
+        { name: "Perejil", amount: 10, unit: "g", component: "topping", optional: true },
+      ],
+    }],
+  };
+  const meal = {
+    ...plans[0], variantId: "selected", servings: 3,
+    portions: [
+      { dinerId: "single", servings: 1, omitted: ["Perejil"] },
+      { dinerId: "guest", servings: 2 },
+    ],
+  };
+  const menu = [meal, { ...meal, id: "second", meal: "cena" },
+    { ...meal, id: "skipped", status: "no_realizada" }];
+  const guide = shoppingGuide(menu, [recipe], [], week);
+  const rice = guide.find((item) => item.name === "Arroz");
+  assert.deepEqual(rice.items.map(({ amount, unit }) => ({ amount, unit })), [
+    { amount: 600, unit: "g" }, { amount: 3, unit: "taza" },
+  ]);
+  assert.equal(guide.find((item) => item.name === "Perejil").items[0].amount, 20);
+  const fewer = shoppingGuide([{ ...meal, portions: [{ dinerId: "single", servings: 1 }] }], [recipe], [], week);
+  assert.equal(fewer.find((item) => item.name === "Arroz").items[0].amount, 100);
+});
